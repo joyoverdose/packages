@@ -1,0 +1,160 @@
+utility_server_room:
+
+    homeassistant:
+      customize:
+        sensor.servernaya_power:
+          friendly_name: Серверна мощность
+          unit_of_measurement: Вт
+          device_class: power
+          icon: mdi:laptop
+        sensor.servernaya_energy:
+          friendly_name: Серверна энергия
+          icon: mdi:chart-line
+
+        sensor.server_room_clear:
+          friendly_name: Серверна всего
+          icon: mdi:laptop
+          unit_of_measurement: кВт/ч
+        sensor.server_room_day:
+          friendly_name: Серверна день
+          icon: mdi:white-balance-sunny
+          unit_of_measurement: кВт/ч
+        sensor.server_room_night:
+          friendly_name: Серверна ночь
+          icon: mdi:moon-waning-crescent
+          unit_of_measurement: кВт/ч
+
+        sensor.server_room_clear_cost:
+          friendly_name: Серверна всего
+          icon: mdi:cash-multiple
+          unit_of_measurement: грн
+        sensor.server_room_day_cost:
+          friendly_name: Серверна день
+          icon: mdi:cash-clock
+          unit_of_measurement: грн
+        sensor.Server_Room_night_cost:
+          friendly_name: Серверна ночь
+          icon: mdi:cash-fast
+          unit_of_measurement: грн
+          
+    recorder:
+      include:
+        entities:
+           - sensor.servernaya_power
+
+    utility_meter:
+
+      server_room:
+        source: sensor.servernaya_energy
+        cycle: monthly
+        offset:
+          days: 0
+          hours: 12
+          minutes: 0
+        tariffs:
+          - night
+          - day
+
+    input_text:
+
+      server_room_day:
+        name: Серверна день
+      server_room_night:
+        name: Серверна ніч
+
+    input_button:
+
+      server_room_day:
+        name: Серверна день
+        icon: mdi:white-balance-sunny
+      server_room_night:
+        name: Серверна ніч
+        icon: mdi:moon-waning-crescent
+
+    template:
+        - sensor:
+          - name: total_studio_energy
+            state: >
+                {{(
+                   states('sensor.servernaya_energy')|float(0) +
+                   states('sensor.0x60a423fffe7ff8c8_energy')|float(0) +
+                   states('sensor.0x086bd7fffe3f4a24_energy')|float(0)
+                  )|round(2)}}
+          - name: total__server_room_power
+            state: >
+                {{(
+                   states('sensor.servernaya_power')|float(0) +
+                   states('sensor.0x60a423fffe7ff8c8_power')|float(0) +
+                   states('sensor.0x086bd7fffe3f4a24_power')|float(0)
+                  )|round(2)}}  
+#      - sensor:
+
+          - name: server_room_clear
+            state: >
+                {{(
+                   states('sensor.server_room_day')|float(0) +
+                   states('sensor.server_room_night')|float(0)
+                  )|round(2)}}
+      
+          - name: server_room_clear_cost
+            state: >
+                {{(
+                   states('sensor.server_room_day_cost')|float(0) +
+                   states('sensor.server_room_night_cost')|float(0)
+                  )|round(2)}}
+
+          - name: server_room_day_cost
+            state: >
+                {% if states('sensor.meter_total_energy_clear')|float <= states('input_text.consumption_limit')|float %}
+                {{ states('sensor.server_room_day')|float * states('input_text.in_limit')|float }}
+                {% else  %}
+                {{ states('sensor.server_room_day')|float * states('input_text.off_limit')|float }}
+                {% endif %}
+                
+          - name: server_room_night_cost
+            state: >
+                {% if states('sensor.meter_total_energy_clear')|float <= states('input_text.consumption_limit')|float %}
+                {{ states('sensor.server_room_night')|float * states('input_text.in_limit')|float * states('input_text.night_coefficient')|float }}
+                {% else  %}
+                {{ states('sensor.server_room_night')|float * states('input_text.off_limit')|float * states('input_text.night_coefficient')|float }}
+                {% endif %}
+        
+    automation:
+    
+      - alias: server_room_calibrate
+        id: server_room_calibrate
+        description: Калибровка общего рабочего места
+        initial_state: true
+        trigger:
+    ## Дневное потребление
+        - platform: state
+          entity_id: input_button.server_room_day
+          id: server_room_day
+    ## Ночное потребление
+        - platform: state
+          entity_id: input_button.server_room_night
+          id: server_room_night
+        action:
+            - choose:
+              - conditions:
+                  - condition: trigger
+                    id: server_room_day
+                sequence:
+                  - service: utility_meter.calibrate
+                    data_template:
+                      value: >
+                         {{states('input_text.server_room_day')|float}}
+                    target:
+                      entity_id:
+                        - sensor.server_room_day
+              - conditions:
+                  - condition: trigger
+                    id: server_room_night
+                sequence:
+                  - service: utility_meter.calibrate
+                    data_template:
+                      value: >
+                         {{states('input_text.server_room_night')|float}}
+                    target:
+                      entity_id:
+                        - sensor.server_room_night
